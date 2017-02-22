@@ -6,7 +6,7 @@
 		<category>Ethereal</category>
 		<thingClass>CarefulRaids.CorpseBlocker</thingClass>
 		<drawerType>None</drawerType>
-		<label>CorpseBlocker</label>
+		<label>blocks raiders so they do not step on their own casualties</label>
 		<holdsRoof>false</holdsRoof>
 		<passability>Impassable</passability>
 		<temporaryRegionBarrier>true</temporaryRegionBarrier>

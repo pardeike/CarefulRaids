@@ -27,6 +27,10 @@ namespace CarefulRaids
 			base.ExposeData();
 			Scribe_References.LookReference(ref faction, "faction", false);
 		}
+
+		public override void Tick()
+		{
+		}
 	}
 
 	// Someone died, update forbidden locations
