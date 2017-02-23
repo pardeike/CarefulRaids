@@ -1,17 +1,40 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ThingDefinitions>
-  
-  <ThingDef>
-    <defName>CorpseBlocker</defName>
-    <category>Ethereal</category>
-    <thingClass>CarefulRaids.CorpseBlocker</thingClass>
-    <drawerType>None</drawerType>
-    <label>blocks raiders so they do not step on their own casualties</label>
-    <holdsRoof>false</holdsRoof>
-    <passability>Impassable</passability>
-    <temporaryRegionBarrier>true</temporaryRegionBarrier>
-    <useHitPoints>false</useHitPoints>
-    <tradeability>Never</tradeability>
-  </ThingDef>
-  
+
+	<!--<ThingDef>
+		<defName>CorpseBlocker</defName>
+		<category>Building</category>
+		<thingClass>CarefulRaids.CorpseBlocker</thingClass>
+		<drawerType>RealtimeOnly</drawerType>
+		<label>CorpseBlocker</label>
+		<holdsRoof>false</holdsRoof>
+		<passability>Impassable</passability>
+		<useHitPoints>false</useHitPoints>
+		<tradeability>Never</tradeability>
+	</ThingDef>-->
+
+	<ThingDef ParentName="DoorBase">
+
+		<thingClass>CarefulRaids.CorpseBlocker</thingClass>
+		<useHitPoints>false</useHitPoints>
+		<tradeability>Never</tradeability>
+		<holdsRoof>false</holdsRoof>
+		<tickerType>Long</tickerType>
+
+		<defName>CorpseBlocker</defName>
+		<label>corpseblocker</label>
+		<description>corpseblocker</description>
+		<statBases>
+			<WorkToBuild>0</WorkToBuild>
+		</statBases>
+		<graphicData>
+			<texPath>CorpseBlocker</texPath>
+			<graphicClass>Graphic_Single</graphicClass>
+			<damageData>
+				<enabled>false</enabled>
+			</damageData>
+		</graphicData>
+		<costStuffCount>0</costStuffCount>
+	</ThingDef>
+
 </ThingDefinitions>
