@@ -1,18 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ThingDefinitions>
 
-	<!--<ThingDef>
-		<defName>CorpseBlocker</defName>
-		<category>Building</category>
-		<thingClass>CarefulRaids.CorpseBlocker</thingClass>
-		<drawerType>RealtimeOnly</drawerType>
-		<label>CorpseBlocker</label>
-		<holdsRoof>false</holdsRoof>
-		<passability>Impassable</passability>
-		<useHitPoints>false</useHitPoints>
-		<tradeability>Never</tradeability>
-	</ThingDef>-->
-
 	<ThingDef ParentName="DoorBase">
 
 		<thingClass>CarefulRaids.CorpseBlocker</thingClass>
@@ -20,6 +8,7 @@
 		<tradeability>Never</tradeability>
 		<holdsRoof>false</holdsRoof>
 		<tickerType>Long</tickerType>
+		<drawerType>None</drawerType> <!-- set to RealtimeOnly for debugging -->
 
 		<defName>CorpseBlocker</defName>
 		<label>corpseblocker</label>
@@ -28,7 +17,7 @@
 			<WorkToBuild>0</WorkToBuild>
 		</statBases>
 		<graphicData>
-			<texPath>CorpseBlocker</texPath>
+			<texPath>CorpseBlockerDebug</texPath>
 			<graphicClass>Graphic_Single</graphicClass>
 			<damageData>
 				<enabled>false</enabled>
