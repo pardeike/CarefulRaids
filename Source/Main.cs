@@ -115,20 +115,11 @@ namespace CarefulRaids
 		// this infix patch will insert a custom code segment after the first line of
 		// code in the method Pawn_PathFollower.TryEnterNextPathCell
 		//
-		class TryEnterNextPathCell_Infix : CodeProcessor
+		static IEnumerable<CodeInstruction> Transpiler(ILGenerator generator, IEnumerable<CodeInstruction> instructions)
 		{
-			int counter = 0; // il code counter
-			Label label;
-
-			public override List<CodeInstruction> Start(ILGenerator generator, MethodBase original)
+			int counter = 0;
+			foreach (var instruction in instructions)
 			{
-				label = generator.DefineLabel();
-				return null;
-			}
-
-			public override List<CodeInstruction> Process(CodeInstruction instruction)
-			{
-				// counting il codes will help to identify future changes to the original method
 				if (++counter == 4 && instruction.opcode == OpCodes.Ldloc_0)
 				{
 					var type = typeof(Pawn_PathFollower);
@@ -149,30 +140,19 @@ namespace CarefulRaids
 					 *		return;
 					 *	}
 					 */
+					var label = generator.DefineLabel();
+					yield return new CodeInstruction(OpCodes.Ldarg_0);
+					yield return new CodeInstruction(OpCodes.Ldfld, f_pawn);
+					yield return new CodeInstruction(OpCodes.Ldloc_0);
+					yield return new CodeInstruction(OpCodes.Call, m_Patch);
+					yield return new CodeInstruction(OpCodes.Brfalse_S, label);
+					yield return new CodeInstruction(OpCodes.Ldarg_0);
+					yield return new CodeInstruction(OpCodes.Call, m_PatherFailed);
+					yield return new CodeInstruction(OpCodes.Ret);
 					instruction.labels.Add(label);
-					return new List<CodeInstruction>()
-					{
-						new CodeInstruction(OpCodes.Ldarg_0),
-						new CodeInstruction(OpCodes.Ldfld, f_pawn),
-						new CodeInstruction(OpCodes.Ldloc_0),
-						new CodeInstruction(OpCodes.Call, m_Patch),
-						new CodeInstruction(OpCodes.Brfalse_S, label),
-						new CodeInstruction(OpCodes.Ldarg_0),
-						new CodeInstruction(OpCodes.Call, m_PatherFailed),
-						new CodeInstruction(OpCodes.Ret),
-						instruction
-					};
 				}
-				return new List<CodeInstruction>() { instruction };
+				yield return instruction;
 			}
-		}
-
-		// our infix factory
-		static HarmonyProcessor ProcessorFactory(MethodBase original)
-		{
-			var processor = new HarmonyProcessor();
-			processor.Add(new TryEnterNextPathCell_Infix());
-			return processor;
 		}
 	}
 
