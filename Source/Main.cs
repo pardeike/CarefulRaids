@@ -34,8 +34,8 @@ namespace CarefulRaids
 		public override void ExposeData()
 		{
 			base.ExposeData();
-			Scribe_References.LookReference(ref blocksFaction, "blocksFaction", false);
-			Scribe_Values.LookValue(ref ticksRemaining, "ticksRemaining");
+			Scribe_References.Look(ref blocksFaction, "blocksFaction", false);
+			Scribe_Values.Look(ref ticksRemaining, "ticksRemaining");
 		}
 
 		public new bool SlowsPawns
@@ -66,7 +66,7 @@ namespace CarefulRaids
 
 		public override bool PawnCanOpen(Pawn p)
 		{
-			return p.Faction.IsPlayer || p.MentalStateDef == MentalStateDefOf.PanicFlee;
+			return (p.Faction != null && p.Faction.IsPlayer) || p.MentalStateDef == MentalStateDefOf.PanicFlee;
 		}
 
 		public override void TickLong()
@@ -162,7 +162,7 @@ namespace CarefulRaids
 	[HarmonyPatch("StartJob")]
 	static class Pawn_JobTracker_StartJob_Patch
 	{
-		static bool Prefix(Pawn_JobTracker __instance, Job newJob, JobCondition lastJobEndCondition)
+		static bool Prefix(Job newJob)
 		{
 			// if EndCurrentJob is called with condition ErroredPather or Errored we most likely have a "no path into base"
 			// situation. we cut down the wait time to 60 ticks. seems to lag so turned off for now
@@ -178,15 +178,15 @@ namespace CarefulRaids
 	// some raider died, lets add corpse blockers around the dead body
 	// (todo: should we also do this on downed raiders?)
 	//
-	[HarmonyPatch(typeof(Pawn_HealthTracker))]
+	[HarmonyPatch(typeof(Pawn))]
 	[HarmonyPatch("Kill")]
-	static class Pawn_HealthTracker_Patch
+	static class Pawn_Kill_Patch
 	{
 		// we need to run this as prefix or else we cannot cancel the job before the original method is run
 		//
-		static void Prefix(Pawn_HealthTracker __instance)
+		static void Prefix(Pawn __instance)
 		{
-			var deadPawn = Traverse.Create(__instance).Field("pawn").GetValue<Pawn>();
+			var deadPawn = __instance;
 			var deathCenter = deadPawn.Position;
 			var faction = deadPawn.Faction;
 			if (faction.HostileTo(Faction.OfPlayer))
@@ -201,14 +201,16 @@ namespace CarefulRaids
 					for (var m = 0; m < 9; m++)
 					{
 						var c = deathCenter + offsets[m];
-						if (GenGrid.InBounds(c, map) && !GenGrid.InNoBuildEdgeArea(c, map))
+						if (c.InBounds(map) && !c.InNoBuildEdgeArea(map))
 						{
 							// make sure we do not stack corpse blockers
 							if (map.thingGrid.CellContains(c, Main.corpseBlockerDef) == false)
 							{
 								// we want to avoid placing corpse blockers at places where there is an alive pawn
-								var firstAlivePawn = map.thingGrid.ThingsAt(c).OfType<Pawn>()
-									.Where(p => p != deadPawn && p.Dead == false).FirstOrDefault();
+								var firstAlivePawn = map
+									.thingGrid
+									.ThingsAt(c).OfType<Pawn>()
+									.FirstOrDefault(p => p != deadPawn && p.Dead == false);
 								if (firstAlivePawn == null)
 								{
 									// we place corpse blockers only at places that are walkable (so no walls)
@@ -231,13 +233,23 @@ namespace CarefulRaids
 					// now, it is possible we surround a pawn with corpse blockers. in that case, we simply undo
 					// our last placement. not perfect but maybe a nice surprise
 					var reverted = false;
-					map.mapPawns.AllPawnsSpawned
-						.Where(p => p != deadPawn && (p.RaceProps.Humanlike || p.RaceProps.IsMechanoid) && p.Dead == false && p.Downed == false && p.Faction.HostileTo(Faction.OfPlayer))
+					map.mapPawns
+						.AllPawnsSpawned
+						.Where(p => 
+							p != deadPawn && 
+							(
+								p.RaceProps.Humanlike || 
+								p.RaceProps.IsMechanoid
+							) && 
+							p.Dead == false && 
+							p.Downed == false && 
+							p.Faction.HostileTo(Faction.OfPlayer)
+						)
 						.Do(p =>
 						{
 							if (reverted == false)
 							{
-								var possibleEscape = RCellFinder.RandomWanderDestFor(p, p.Position, 3f, (pawn, vec) => vec != p.Position && GenGrid.Standable(vec, map), Danger.Deadly);
+								var possibleEscape = RCellFinder.RandomWanderDestFor(p, p.Position, 3f, (pawn, vec) => vec != p.Position && vec.Standable(map), Danger.Deadly);
 								if (possibleEscape.IsValid == false)
 								{
 									// undo our last corpse blocker placement
@@ -247,7 +259,7 @@ namespace CarefulRaids
 							}
 						});
 
-					// todo: is this really necessary?
+					// TODO: is this really necessary?
 					map.reachability.ClearCache();
 
 					// finally, we need to cancel all raider jobs that have a path through a corpse blocker
@@ -258,7 +270,7 @@ namespace CarefulRaids
 							var needsNewJob = p.pather == null || p.pather.curPath == null;
 							if (!needsNewJob)
 							{
-								var edifice = p.pather.nextCell == null ? null : p.pather.nextCell.GetEdifice(p.Map) as CorpseBlocker;
+								var edifice = p.pather.nextCell.GetEdifice(p.Map) as CorpseBlocker;
 								if (edifice != null && edifice.def == Main.corpseBlockerDef)
 									needsNewJob = true;
 								else
