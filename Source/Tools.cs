@@ -1,5 +1,8 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using RimWorld;
+using UnityEngine;
 using Verse;
+using Harmony;
 
 namespace CarefulRaids
 {
@@ -20,4 +23,29 @@ namespace CarefulRaids
 			Graphics.DrawMesh(mesh, matrix, mat, 0);
 		}
 	}
+
+	/*public class FakeDoor : Building_Door
+	{
+		public List<Faction> factions;
+
+		public FakeDoor(Map map, IntVec3 pos, List<Faction> factions)
+		{
+			this.factions = factions;
+			SetFaction(Faction.OfPlayer);
+			Traverse.Create(this).Field("map").SetValue(map);
+			SetPositionDirect(pos);
+
+			Log.Warning("Fake door created " + pos);
+		}
+
+		public override bool BlocksPawn(Pawn p)
+		{
+			return factions.Contains(p.Faction);
+		}
+
+		public new bool CanPhysicallyPass(Pawn p)
+		{
+			return factions.Contains(p.Faction) == false;
+		}
+	}*/
 }

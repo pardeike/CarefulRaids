@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using RimWorld;
+using System.Collections.Generic;
 using System.Linq;
 using Verse;
 
@@ -6,6 +7,7 @@ namespace CarefulRaids
 {
 	public class Info
 	{
+		public Faction faction;
 		public int timestamp;
 		public int costs;
 	}
@@ -18,9 +20,13 @@ namespace CarefulRaids
 
 		public Info GetInfo(Pawn pawn)
 		{
+			if (pawn?.Faction == null)
+				return null;
+
 			Info info;
 			if (infos.TryGetValue(pawn.Faction.loadID, out info))
 				return info;
+
 			return null;
 		}
 
@@ -29,9 +35,12 @@ namespace CarefulRaids
 			infos[factionID] = info;
 		}
 
-		public int DebugInfo()
+		public float DebugInfo()
 		{
-			return infos.Values.Max(info => info.costs);
+			var costs = infos.Values.Max(info => info.costs);
+			var timestamp = infos.Values.Max(info => info.timestamp);
+			if (GenTicks.TicksAbs > timestamp + CarefulRaidsMod.expiringTime) return 0.0f;
+			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, costs);
 		}
 	}
 
@@ -107,6 +116,9 @@ namespace CarefulRaids
 
 		public void AddCell(Pawn pawn, IntVec3 position, Info info)
 		{
+			if (pawn?.Faction == null || pawn?.Map == null)
+				return;
+
 			var id = pawn.Map.uniqueID;
 			CarefulMapGrid mapGrid;
 			if (grids.TryGetValue(id, out mapGrid) == false)

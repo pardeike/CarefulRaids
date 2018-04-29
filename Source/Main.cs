@@ -15,7 +15,7 @@ namespace CarefulRaids
 	{
 		public static CarefulGrid grid = new CarefulGrid();
 		public static int carefulRadius = 3;
-		// public static int expiringTime = GenDate.TicksPerHour;
+		public static int expiringTime = 4 * GenDate.TicksPerHour;
 
 		public CarefulRaidsMod(ModContentPack content) : base(content)
 		{
@@ -41,11 +41,11 @@ namespace CarefulRaids
 					var carefulCell = grid.GetCell(map, cell);
 					if (carefulCell != null)
 					{
-						var cost = carefulCell.DebugInfo();
-						if (cost > 0)
+						var severity = carefulCell.DebugInfo();
+						if (severity > 0.0)
 						{
 							var pos = new Vector3(cell.x, Altitudes.AltitudeFor(AltitudeLayer.Pawn - 1), cell.z);
-							var color = new Color(0f, 0f, 1f, GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, cost));
+							var color = new Color(1f, 0f, 0f, severity);
 							Tools.DebugPosition(pos, color);
 						}
 					}
@@ -75,28 +75,10 @@ namespace CarefulRaids
 		[HarmonyPatch(new Type[] { typeof(Pawn), typeof(DamageInfo?), typeof(PawnDiedOrDownedThoughtsKind) })]
 		static class PawnDiedOrDownedThoughtsUtility_TryGiveThoughts_Patch
 		{
-			static void Repath(Pawn victim)
-			{
-				var map = victim.Map;
-				// var notOlderThan = GenTicks.TicksAbs - expiringTime;
-				map.mapPawns.AllPawnsSpawned
-					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Faction.HostileTo(Faction.OfPlayer))
-					.Where(pawn => pawn.Downed == false && pawn.Dead == false && pawn.InMentalState == false)
-					.Where(pawn => pawn.pather?.curPath != null)
-					.Do(pawn =>
-					{
-						if (pawn.pather.curPath.NodesReversed
-							.Select(node => grid.GetCell(map, node)?.GetInfo(pawn))
-							.Any(info => info?.costs == 10000 /* && info?.timestamp > notOlderThan */))
-							pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true);
-					});
-			}
-
 			static void Postfix(Pawn victim, PawnDiedOrDownedThoughtsKind thoughtsKind)
 			{
-				if (victim.IsColonist) return;
-				if (thoughtsKind != PawnDiedOrDownedThoughtsKind.Downed && thoughtsKind != PawnDiedOrDownedThoughtsKind.Died) return;
 				if (victim.Faction.HostileTo(Faction.OfPlayer) == false) return;
+				if (thoughtsKind != PawnDiedOrDownedThoughtsKind.Downed && thoughtsKind != PawnDiedOrDownedThoughtsKind.Died) return;
 
 				var pos = victim.Position;
 				var map = victim.Map;
@@ -117,211 +99,34 @@ namespace CarefulRaids
 				{
 					var costs = (maxRadius - (vec - pos).LengthHorizontalSquared) * maxCost / maxRadius;
 					if (costs > 0)
-						grid.AddCell(victim, vec, new Info() { costs = costs, timestamp = timestamp });
+						grid.AddCell(victim, vec, new Info() { costs = costs, timestamp = timestamp, faction = victim.Faction });
 
 				}, int.MaxValue, false);
 
+				map.reachability.ClearCache();
 				map.pathGrid.RecalculatePerceivedPathCostAt(pos);
-				Repath(victim);
+				map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
+
+				map.mapPawns.AllPawnsSpawned
+					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Faction.HostileTo(Faction.OfPlayer))
+					.Where(pawn => pawn.Downed == false && pawn.Dead == false && pawn.InMentalState == false)
+					.Where(pawn => pawn.pather?.curPath?.NodesReversed.Contains(pos) ?? false)
+					.Do(pawn => pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true));
 			}
 		}
 
-		// honor careful grid in FindBestReachableMeleeTarget
-		// 
-		[HarmonyPatch]
-		public static class AttackTargetFinder_FindBestReachableMeleeTarget_Patch
-		{
-			static bool IsCarefulPosition(Pawn pawn, IntVec3 pos)
-			{
-				if (pawn.IsColonist) return false;
-				return grid.GetCell(pawn.Map, pos)?.GetInfo(pawn)?.costs == 10000;
-			}
-
-			static MethodBase TargetMethod()
-			{
-				var type = AccessTools.FirstInner(typeof(AttackTargetFinder), t => t.Name.Contains("FindBestReachableMeleeTarget"));
-				return type.GetMethods(AccessTools.all).First(m => m.ReturnType == typeof(bool));
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator, MethodBase originalMethod)
-			{
-				var baseType = originalMethod.DeclaringType;
-				var jump = generator.DefineLabel();
-
-				yield return new CodeInstruction(OpCodes.Ldarg_0);
-				yield return new CodeInstruction(OpCodes.Ldfld, AccessTools.Field(baseType, "searcherPawn"));
-				yield return new CodeInstruction(OpCodes.Ldarg_1);
-				yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(AttackTargetFinder_FindBestReachableMeleeTarget_Patch), "IsCarefulPosition"));
-				yield return new CodeInstruction(OpCodes.Brfalse, jump);
-				yield return new CodeInstruction(OpCodes.Ret);
-
-				var list = instructions.ToList();
-				list[0].labels.Add(jump);
-				foreach (var instr in list)
-					yield return instr;
-			}
-		}
-
-		// honor careful grid in NeedNewPath
-		// 
-		[HarmonyPatch(typeof(Pawn_PathFollower))]
-		[HarmonyPatch("NeedNewPath")]
-		public static class Pawn_PathFollower_NeedNewPath_Patch
-		{
-			static bool IsCarefulPosition(IntVec3 pos, Pawn pawn)
-			{
-				if (pawn.IsColonist) return false;
-				return grid.GetCell(pawn.Map, pos)?.GetInfo(pawn)?.costs == 10000;
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
-			{
-				var list = instructions.ToList();
-				var idx = list.FirstIndexOf(ins => ins.opcode == OpCodes.Call && ins.operand == AccessTools.Method(typeof(GenGrid), "Walkable"));
-				if (idx >= 4)
-				{
-					var jump = generator.DefineLabel();
-					list[idx + 2].labels.Add(jump);
-
-					idx -= 4;
-
-					var vecInstr = new CodeInstruction(list[idx]);
-					var pawnInstr1 = new CodeInstruction(list[idx + 1]);
-					var pawnInstr2 = new CodeInstruction(list[idx + 2]);
-
-					list.Insert(idx++, vecInstr); // ldloc vec2
-					list.Insert(idx++, pawnInstr1); // lodarg_0
-					list.Insert(idx++, pawnInstr2); // ldfld pawn
-					list.Insert(idx++, new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Pawn_PathFollower_NeedNewPath_Patch), "IsCarefulPosition")));
-					list.Insert(idx++, new CodeInstruction(OpCodes.Brtrue, jump));
-				}
-				else
-					Log.Error("Cannot find CALL Walkable in Pawn_PathFollower.NeedNewPath");
-
-				foreach (var instr in list)
-					yield return instr;
-			}
-		}
-
-		// honor careful grid in GetAdjacentCells.MoveNext
-		// 
-		[HarmonyPatch]
-		public static class CellFinder_GetAdjacentCells_MoveNext_Patch
-		{
-			static bool IsCarefulPosition(IntVec3 pos, Pawn pawn)
-			{
-				if (pawn.IsColonist) return false;
-				return grid.GetCell(pawn.Map, pos)?.GetInfo(pawn)?.costs == 10000;
-			}
-
-			static MethodBase TargetMethod()
-			{
-				var type = AccessTools.FirstInner(typeof(CellFinder), t => t.Name.Contains("GetAdjacentCells"));
-				return AccessTools.Method(type, "MoveNext");
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
-			{
-				var list = instructions.ToList();
-				var idx = list.FirstIndexOf(ins => ins.opcode == OpCodes.Call && ins.operand == AccessTools.Method(typeof(GenGrid), "Walkable"));
-				if (idx >= 5)
-				{
-					var jump = generator.DefineLabel();
-					list[idx + 2].labels.Add(jump);
-
-					idx -= 5;
-
-					var vecInstr1 = new CodeInstruction(list[idx]);
-					var vecInstr2 = new CodeInstruction(list[idx + 1]);
-					var pawnInstr1 = new CodeInstruction(list[idx + 2]);
-					var pawnInstr2 = new CodeInstruction(list[idx + 3]);
-
-					list.Insert(idx++, vecInstr1); // ldarg_0
-					list.Insert(idx++, vecInstr2); // ldfld iterator
-					list.Insert(idx++, pawnInstr1); // ldarg_0
-					list.Insert(idx++, pawnInstr2); // ldfld pawn
-					list.Insert(idx++, new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(CellFinder_GetAdjacentCells_MoveNext_Patch), "IsCarefulPosition")));
-					list.Insert(idx++, new CodeInstruction(OpCodes.Brtrue, jump));
-				}
-				else
-					Log.Error("Cannot find CALL Walkable in Pawn_PathFollower.NeedNewPath");
-
-				foreach (var instr in list)
-					yield return instr;
-			}
-		}
-
-		// honor careful grid in Region.Allows
-		/*
-		[HarmonyPatch(typeof(Region))]
-		[HarmonyPatch("Allows")]
-		public static class Region_Allows_Patch
-		{
-
-		}
-		*/
-
-		// apply careful grid costs to path calculation
-		//
-		/*
 		[HarmonyPatch(typeof(PathFinder))]
 		[HarmonyPatch("FindPath")]
 		[HarmonyPatch(new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
 		public static class PathFinder_FindPath_Patch
 		{
-			public static MethodInfo m_CellToIndex = AccessTools.Method(typeof(CellIndices), "CellToIndex", new Type[] { typeof(int), typeof(int) });
-			public static MethodInfo m_IsCarefulPosition = AccessTools.Method(typeof(PathFinder_FindPath_Patch), "IsCarefulPosition");
-
-			static bool IsCarefulPosition(Pawn pawn, int idx)
+			static int GetExtraCosts(Pawn pawn, int idx)
 			{
-				if (pawn.IsColonist) return false;
-				return grid.GetCell(pawn.Map, idx)?.GetInfo(pawn)?.costs == 10000;
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-			{
-				var list = instructions.ToList();
-				var idx = list.FindIndex(ins => ins.opcode == OpCodes.Callvirt && ins.operand == m_CellToIndex);
-				if (idx > 0)
-				{
-					var indexLocalVarNr = list[idx + 1].operand;
-
-					var br = list.GetRange(idx, list.Count - idx - 1).FirstOrDefault(ins => ins.opcode == OpCodes.Br);
-					if (br != null)
-					{
-						var jumpLocation = br.operand;
-
-						idx += 2;
-						list.Insert(idx++, new CodeInstruction(OpCodes.Ldloc_0));
-						list.Insert(idx++, new CodeInstruction(OpCodes.Ldloc_S, indexLocalVarNr));
-						list.Insert(idx++, new CodeInstruction(OpCodes.Call, m_IsCarefulPosition));
-						list.Insert(idx++, new CodeInstruction(OpCodes.Brtrue, jumpLocation));
-					}
-					else
-						Log.Error("Cannot find br IL_0bad in PathFinder.FindPath");
-				}
-				else
-					Log.Error("Cannot find CellToIndex(int, int) in PathFinder.FindPath");
-
-				foreach (var instr in list)
-					yield return instr;
-			}
-		}
-		*/
-
-		/*
-		[HarmonyPatch(typeof(PathFinder))]
-		[HarmonyPatch("FindPath")]
-		[HarmonyPatch(new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
-		public static class PathFinder_FindPath_Patch
-		{
-			public static MethodInfo m_GetCosts = AccessTools.Method(typeof(PathFinder_FindPath_Patch), "GetCosts");
-			static Dictionary<Map, TickManager> tickManagerCache = new Dictionary<Map, TickManager>();
-
-			static int GetCosts(Pawn pawn, int idx)
-			{
-				if (pawn.IsColonist) return 0;
-				return grid.GetCell(pawn.Map, idx)?.GetInfo(pawn)?.costs ?? 0;
+				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return 0;
+				var info = grid.GetCell(pawn.Map, idx)?.GetInfo(pawn);
+				if (info == null) return 0;
+				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return 0;
+				return info.costs;
 			}
 
 			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
@@ -339,7 +144,7 @@ namespace CarefulRaids
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Ldloc_S, sumIdx) { labels = movedLabels });
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Ldloc_0));
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Ldloc_S, gridIdx));
-					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Call, m_GetCosts));
+					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(PathFinder_FindPath_Patch), "GetExtraCosts")));
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Add));
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Stloc_S, sumIdx));
 				}
@@ -350,196 +155,90 @@ namespace CarefulRaids
 					yield return instr;
 			}
 		}
-		*/
 
 		/*
-		[HarmonyPatch(typeof(Pawn_PathFollower))]
-		[HarmonyPatch("TrySetNewPath")]
-		public static class Pawn_PathFollower_GenerateNewPath_Patch
+		[HarmonyPatch(typeof(RegionMaker))]
+		[HarmonyPatch("TryGenerateRegionFrom")]
+		public static class RegionMaker_TryGenerateRegionFrom_Patch
 		{
-			static void Postfix(Pawn_PathFollower __instance, ref bool __result)
+			public static Building_Door GetDoorReplacement(IntVec3 c, Map map)
 			{
-				if (__result == false) return;
-				var pawn = Traverse.Create(__instance).Field("pawn").GetValue<Pawn>();
-				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return;
-				if (__instance.curPath.NodesReversed.Any(vec => (grid.GetMapGrid(pawn.Map).GetCell(vec)?.GetInfo(pawn)?.costs ?? 0) == 10000))
-				{
-					pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true);
-					__result = false;
-				}
-			}
-		}
-		*/
+				Log.Warning("TryGenerateRegionFrom " + c);
 
-		/*
-		[HarmonyPatch(typeof(Pawn_PathFollower))]
-		[HarmonyPatch("GenerateNewPath")]
-		public static class Pawn_PathFollower_GenerateNewPath_Patch
-		{
-			static MethodInfo m_ProcessPath = AccessTools.Method(typeof(Pawn_PathFollower_GenerateNewPath_Patch), "ProcessPath");
-			static FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
-
-			static PawnPath ProcessPath(PawnPath path, Pawn pawn)
-			{
-				if (pawn.Faction.HostileTo(Faction.OfPlayer))
+				var carefulCell = grid.GetCell(map, c);
+				if (carefulCell != null)
 				{
-					if (path.Found && path.NodesReversed.Any(vec => (grid.GetMapGrid(pawn.Map).GetCell(vec)?.GetInfo(pawn)?.costs ?? 0) == 10000))
-					{
-						Log.Warning("Denied path for " + pawn + " at " + pawn.Position);
-						return PawnPath.NotFound;
-					}
-					else
-						Log.Warning((path.Found ? "New" : "No valid") + " path for " + pawn + " at " + pawn.Position);
+					var forbiddenFactions = carefulCell.infos.Values
+						.Where(info => info.costs == 10000)
+						.Select(info => info.faction);
+					if (forbiddenFactions.Any())
+						return new FakeDoor(map, c, forbiddenFactions.ToList());
 				}
-				return path;
+				return c.GetDoor(map);
 			}
 
 			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
 			{
-				foreach (var instr in instructions)
-				{
-					if (instr.opcode == OpCodes.Ret)
-					{
-						yield return new CodeInstruction(OpCodes.Ldarg_0) { labels = instr.labels };
-						yield return new CodeInstruction(OpCodes.Ldfld, f_pawn);
-						yield return new CodeInstruction(OpCodes.Call, m_ProcessPath);
-						yield return new CodeInstruction(OpCodes.Ret);
-					}
-					else
-						yield return instr;
-				}
+				var m_GetDoor = AccessTools.Method(typeof(GridsUtility), "GetDoor");
+				var m_GetDoorReplacement = AccessTools.Method(typeof(RegionMaker_TryGenerateRegionFrom_Patch), "GetDoorReplacement");
+				return Transpilers.MethodReplacer(instructions, m_GetDoor, m_GetDoorReplacement);
 			}
 		}
 		*/
 
-		// check for careful grid markers
-		//
-		/*
-		[HarmonyPatch(typeof(Pawn_PathFollower))]
-		[HarmonyPatch("TryEnterNextPathCell")]
-		public static class Pawn_PathFollower_TryEnterNextPathCell_Patch
-		{
-			static FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
-			static MethodInfo m_BeCareful = AccessTools.Method(typeof(Pawn_PathFollower_TryEnterNextPathCell_Patch), "BeCareful");
-			static MethodInfo m_PatherFailed = AccessTools.Method(typeof(Pawn_PathFollower), "PatherFailed");
-
-			static bool BeCareful(Pawn_PathFollower pather, Pawn pawn)
-			{
-				var stop = (grid.GetMapGrid(pawn.Map).GetCell(pather.nextCell)?.GetInfo(pawn)?.costs ?? 0) == 10000;
-				if (stop)
-				{
-					pather.StopDead();
-					pawn.jobs.curDriver.EndJobWith(JobCondition.Incompletable);
-				}
-
-				return stop;
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
-			{
-				var jump = generator.DefineLabel();
-
-				yield return new CodeInstruction(OpCodes.Ldarg_0);
-				yield return new CodeInstruction(OpCodes.Ldarg_0);
-				yield return new CodeInstruction(OpCodes.Ldfld, f_pawn);
-				yield return new CodeInstruction(OpCodes.Call, m_BeCareful);
-				yield return new CodeInstruction(OpCodes.Brfalse, jump);
-				yield return new CodeInstruction(OpCodes.Ret);
-
-				var list = instructions.ToList();
-				list[0].labels.Add(jump);
-				foreach (var instr in list)
-					yield return instr;
-			}
-		}
-		*/
-
-		/*
 		[HarmonyPatch(typeof(Pawn_PathFollower))]
 		[HarmonyPatch("NeedNewPath")]
 		public static class Pawn_PathFollower_NeedNewPath_Patch
 		{
-			static MethodInfo m_get_LengthHorizontalSquared = AccessTools.Method(typeof(IntVec3), "get_LengthHorizontalSquared");
-			static MethodInfo m_CarefulInPath = AccessTools.Method(typeof(Pawn_PathFollower_NeedNewPath_Patch), "CarefulInPath");
+			static MethodInfo m_ShouldCollideWithPawns = AccessTools.Method(typeof(PawnUtility), "ShouldCollideWithPawns");
+			static MethodInfo m_HasDangerInPath = AccessTools.Method(typeof(Pawn_PathFollower_NeedNewPath_Patch), "HasDangerInPath");
 			static FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
 
-			static bool CarefulInPath(Pawn_PathFollower __instance, Pawn pawn)
+			static bool HasDangerInPath(Pawn_PathFollower __instance, Pawn pawn)
 			{
-				if (pawn.IsColonist) return false;
+				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return false;
 
 				var path = __instance.curPath;
-				if (path.NodesLeftCount < carefulRadius) return false;
-				var lookAhead = path.Peek(carefulRadius - 1);
+				if (path.NodesLeftCount < 5) return false;
+				var lookAhead = path.Peek(4);
 				var destination = path.LastNode;
+				if ((lookAhead - destination).LengthHorizontalSquared < 25) return false;
 
-				var costs = grid.GetCell(pawn.Map, lookAhead)?.GetInfo(pawn)?.costs ?? 0;
-				if (costs == 10000)
-					Log.Warning(pawn.NameStringShort + " at " + pawn.Position + " avoids " + lookAhead);
-
-				return costs == 10000;
+				var map = pawn.Map;
+				var info = grid.GetCell(pawn.Map, lookAhead)?.GetInfo(pawn);
+				if (info == null) return false;
+				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return false;
+				return (info.costs > 0);
 			}
 
 			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
 			{
 				var list = instructions.ToList();
-				var idx = list.FindLastIndex(code => code.opcode == OpCodes.Call && code.operand == m_get_LengthHorizontalSquared);
+				var idx = list.FirstIndexOf(code => code.opcode == OpCodes.Call && code.operand == m_ShouldCollideWithPawns) - 1;
 				if (idx > 0)
 				{
-					idx = list.FirstIndexOf(code => code.opcode == OpCodes.Ret && list.IndexOf(code) > idx) + 2;
-					if (idx > 2)
+					if (list[idx].opcode == OpCodes.Ldfld)
 					{
 						var jump = generator.DefineLabel();
 
 						// here we should have a Ldarg_0 but original code has one with a label on it so we reuse it
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ldarg_0));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ldfld, f_pawn));
-						list.Insert(idx++, new CodeInstruction(OpCodes.Call, m_CarefulInPath));
+						list.Insert(idx++, new CodeInstruction(OpCodes.Call, m_HasDangerInPath));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Brfalse, jump));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ldc_I4_1));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ret));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ldarg_0) { labels = new List<Label>() { jump } }); // add the missing Ldarg_0 from original code here
 					}
 					else
-						Log.Error("Cannot find OpCode.Ret after last " + m_get_LengthHorizontalSquared + " in Pawn_PathFollower.NeedNewPath");
+						Log.Error("Cannot find Ldfld one instruction before " + m_ShouldCollideWithPawns + " in Pawn_PathFollower.NeedNewPath");
 				}
 				else
-					Log.Error("Cannot find " + m_get_LengthHorizontalSquared + " in Pawn_PathFollower.NeedNewPath");
+					Log.Error("Cannot find " + m_ShouldCollideWithPawns + " in Pawn_PathFollower.NeedNewPath");
 
 				foreach (var instr in list)
 					yield return instr;
 			}
 		}
-		*/
-
-		// now, it is possible we surround a pawn with corpse blockers. in that case, we simply undo
-		// our last placement. not perfect but maybe a nice surprise
-		/*
-		var reverted = false;
-		map.mapPawns
-			.AllPawnsSpawned
-			.Where(p =>
-				p != deadPawn &&
-				(
-					p.RaceProps.Humanlike ||
-					p.RaceProps.IsMechanoid
-				) &&
-				p.Dead == false &&
-				p.Downed == false &&
-				p.Faction.HostileTo(Faction.OfPlayer)
-			)
-			.Do(p =>
-			{
-				if (reverted == false)
-				{
-					var possibleEscape = RCellFinder.RandomWanderDestFor(p, p.Position, 3f, (pawn, vec) => vec != p.Position && vec.Standable(map), Danger.Deadly);
-					if (possibleEscape.IsValid == false)
-					{
-						// undo our last corpse blocker placement
-						newBlockers.ForEach(cb => cb.Destroy());
-						reverted = true;
-					}
-				}
-			});
-		*/
 	}
 }
