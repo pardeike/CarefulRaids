@@ -13,7 +13,6 @@ namespace CarefulRaids
 {
 	public class CarefulRaidsMod : Mod
 	{
-		public static CarefulGrid grid = new CarefulGrid();
 		public static int carefulRadius = 3;
 		public static int expiringTime = 4 * GenDate.TicksPerHour;
 
@@ -33,12 +32,12 @@ namespace CarefulRaids
 			{
 				if (DebugViewSettings.writePathCosts == false) return;
 
-				var map = Find.VisibleMap;
+				var map = Find.CurrentMap;
 				var currentViewRect = Find.CameraDriver.CurrentViewRect;
 				currentViewRect.ClipInsideMap(map);
 				foreach (var cell in currentViewRect)
 				{
-					var carefulCell = grid.GetCell(map, cell);
+					var carefulCell = CarefulGrid.GetCell(map, cell);
 					if (carefulCell != null)
 					{
 						var severity = carefulCell.DebugInfo();
@@ -56,15 +55,61 @@ namespace CarefulRaids
 		// reset/load careful grid
 		//
 		[HarmonyPatch(typeof(Map))]
-		[HarmonyPatch("FinalizeLoading")]
-		static class Map_FinalizeLoading_Patch
+		[HarmonyPatch("MapPreTick")]
+		static class Map_MapPreTick_Patch
 		{
-			static void Prefix(Map __instance)
+			static void Postfix(Map __instance)
 			{
-				// TODO replace with loading
+				CarefulGrid.GetMapGrid(__instance).Tick(__instance);
+			}
+		}
 
-				var id = __instance.uniqueID;
-				grid.grids[id] = new CarefulMapGrid(__instance);
+		[HarmonyPatch(typeof(RegionTypeUtility))]
+		[HarmonyPatch(nameof(RegionTypeUtility.GetExpectedRegionType))]
+		static class RegionTypeUtility_GetExpectedRegionType_Patch
+		{
+			static bool Prefix(ref RegionType __result, IntVec3 c, Map map)
+			{
+				var carefulCell = CarefulGrid.GetCell(map, c);
+				if (carefulCell != null)
+				{
+					if (carefulCell.infos.Values
+							.Where(info => GenTicks.TicksAbs < info.timestamp + expiringTime && info.costs >= 10000)
+							.Select(info => info.faction)
+							.Any())
+					{
+						__result = RegionType.Portal;
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+
+		[HarmonyPatch(typeof(RegionMaker))]
+		[HarmonyPatch(nameof(RegionMaker.TryGenerateRegionFrom))]
+		static class RegionMaker_TryGenerateRegionFrom_Patch
+		{
+			static Building_Door GetDoor(IntVec3 c, Map map)
+			{
+				var carefulCell = CarefulGrid.GetCell(map, c);
+				if (carefulCell != null)
+				{
+					var forbiddenFactions = carefulCell.infos.Values
+							.Where(info => GenTicks.TicksAbs < info.timestamp + expiringTime && info.costs >= 10000)
+							.Select(info => info.faction);
+					var factionManager = Find.FactionManager;
+					if (forbiddenFactions.Any())
+						return new FakeDoor(map, c, forbiddenFactions.ToList());
+				}
+				return c.GetDoor(map);
+			}
+
+			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+			{
+				var m_GetDoor1 = AccessTools.Method(typeof(GridsUtility), nameof(GridsUtility.GetDoor));
+				var m_GetDoor2 = AccessTools.Method(typeof(RegionMaker_TryGenerateRegionFrom_Patch), nameof(RegionMaker_TryGenerateRegionFrom_Patch.GetDoor));
+				return instructions.MethodReplacer(m_GetDoor1, m_GetDoor2);
 			}
 		}
 
@@ -87,6 +132,7 @@ namespace CarefulRaids
 				var timestamp = GenTicks.TicksAbs;
 				var maxRadius = carefulRadius * carefulRadius;
 				var maxCost = thoughtsKind == PawnDiedOrDownedThoughtsKind.Died ? 10000 : 5000;
+				var factionManager = Find.FactionManager;
 				map.floodFiller.FloodFill(pos, vec =>
 				{
 					if (!vec.Walkable(map)) return false;
@@ -99,7 +145,7 @@ namespace CarefulRaids
 				{
 					var costs = (maxRadius - (vec - pos).LengthHorizontalSquared) * maxCost / maxRadius;
 					if (costs > 0)
-						grid.AddCell(victim, vec, new Info() { costs = costs, timestamp = timestamp, faction = victim.Faction });
+						CarefulGrid.AddCell(victim, vec, new Info() { costs = costs, timestamp = timestamp, faction = victim.Faction });
 
 				}, int.MaxValue, false);
 
@@ -123,9 +169,10 @@ namespace CarefulRaids
 			static int GetExtraCosts(Pawn pawn, int idx)
 			{
 				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return 0;
-				var info = grid.GetCell(pawn.Map, idx)?.GetInfo(pawn);
+				var info = CarefulGrid.GetCell(pawn.Map, idx)?.GetInfo(pawn);
 				if (info == null) return 0;
 				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return 0;
+				//Log.Warning("costs " + info.costs + " " + pawn.Name.ToStringShort);
 				return info.costs;
 			}
 
@@ -135,10 +182,17 @@ namespace CarefulRaids
 				var refIdx = list.FirstIndexOf(ins => ins.operand is int && (int)ins.operand == 600);
 				if (refIdx > 0)
 				{
+					if (list[refIdx - 4].opcode != OpCodes.Ldloc_S)
+						Log.Error("Cannot find grid index (Ldloc_S)");
+					if (list[refIdx + 2].opcode != OpCodes.Stloc_S)
+						Log.Error("Cannot find sum index (Stloc_S)");
+
 					var gridIdx = list[refIdx - 4].operand;
-					var sumIdx = list[refIdx - 1].operand;
+					var sumIdx = list[refIdx + 2].operand;
 					var insertIdx = refIdx + 3;
 					var movedLabels = list[insertIdx].labels;
+					if (movedLabels.Count != 2)
+						Log.Error("Wrong number of jump labels (" + movedLabels.Count + " instead of 2)");
 					list[insertIdx].labels = new List<Label>();
 
 					list.Insert(insertIdx++, new CodeInstruction(OpCodes.Ldloc_S, sumIdx) { labels = movedLabels });
@@ -156,43 +210,19 @@ namespace CarefulRaids
 			}
 		}
 
-		/*
-		[HarmonyPatch(typeof(RegionMaker))]
-		[HarmonyPatch("TryGenerateRegionFrom")]
-		public static class RegionMaker_TryGenerateRegionFrom_Patch
-		{
-			public static Building_Door GetDoorReplacement(IntVec3 c, Map map)
-			{
-				Log.Warning("TryGenerateRegionFrom " + c);
-
-				var carefulCell = grid.GetCell(map, c);
-				if (carefulCell != null)
-				{
-					var forbiddenFactions = carefulCell.infos.Values
-						.Where(info => info.costs == 10000)
-						.Select(info => info.faction);
-					if (forbiddenFactions.Any())
-						return new FakeDoor(map, c, forbiddenFactions.ToList());
-				}
-				return c.GetDoor(map);
-			}
-
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-			{
-				var m_GetDoor = AccessTools.Method(typeof(GridsUtility), "GetDoor");
-				var m_GetDoorReplacement = AccessTools.Method(typeof(RegionMaker_TryGenerateRegionFrom_Patch), "GetDoorReplacement");
-				return Transpilers.MethodReplacer(instructions, m_GetDoor, m_GetDoorReplacement);
-			}
-		}
-		*/
-
 		[HarmonyPatch(typeof(Pawn_PathFollower))]
 		[HarmonyPatch("NeedNewPath")]
 		public static class Pawn_PathFollower_NeedNewPath_Patch
 		{
-			static MethodInfo m_ShouldCollideWithPawns = AccessTools.Method(typeof(PawnUtility), "ShouldCollideWithPawns");
-			static MethodInfo m_HasDangerInPath = AccessTools.Method(typeof(Pawn_PathFollower_NeedNewPath_Patch), "HasDangerInPath");
-			static FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
+			static readonly MethodInfo m_ShouldCollideWithPawns = AccessTools.Method(typeof(PawnUtility), "ShouldCollideWithPawns");
+			static readonly MethodInfo m_HasDangerInPath = AccessTools.Method(typeof(Pawn_PathFollower_NeedNewPath_Patch), "HasDangerInPath");
+			static readonly FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
+
+			/*static void Postfix(bool __result, Pawn ___pawn)
+			{
+				if (__result && ___pawn != null && ___pawn.Name != null && ___pawn.Faction.HostileTo(Faction.OfPlayer))
+					Log.Warning(___pawn.Name.ToStringShort + " needs new path");
+			}*/
 
 			static bool HasDangerInPath(Pawn_PathFollower __instance, Pawn pawn)
 			{
@@ -205,7 +235,7 @@ namespace CarefulRaids
 				if ((lookAhead - destination).LengthHorizontalSquared < 25) return false;
 
 				var map = pawn.Map;
-				var info = grid.GetCell(pawn.Map, lookAhead)?.GetInfo(pawn);
+				var info = CarefulGrid.GetCell(pawn.Map, lookAhead)?.GetInfo(pawn);
 				if (info == null) return false;
 				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return false;
 				return (info.costs > 0);

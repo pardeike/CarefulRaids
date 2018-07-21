@@ -1,20 +1,28 @@
 ﻿using RimWorld;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Verse;
 
 namespace CarefulRaids
 {
-	public class Info
+	public class Info : IExposable
 	{
 		public Faction faction;
 		public int timestamp;
 		public int costs;
+
+		public void ExposeData()
+		{
+			Scribe_References.Look(ref faction, "faction");
+			Scribe_Values.Look(ref timestamp, "timestamp");
+			Scribe_Values.Look(ref costs, "costs");
+		}
 	}
 
 	//
 
-	public class CarefulCell
+	public class CarefulCell : IExposable
 	{
 		public Dictionary<int, Info> infos = new Dictionary<int, Info>();
 
@@ -30,6 +38,27 @@ namespace CarefulRaids
 			return null;
 		}
 
+		public void ExposeData()
+		{
+			Scribe_Collections.Look(ref infos, "infos");
+		}
+
+		public List<Faction> GetFactions()
+		{
+			var factionManager = Find.FactionManager;
+			return infos.Values.Select(info => info.faction).ToList();
+		}
+
+		public int MaxCost()
+		{
+			return infos.Values.Max(info => info.costs);
+		}
+
+		public int MaxTimestamp()
+		{
+			return infos.Values.Max(info => info.timestamp);
+		}
+
 		public void AddInfo(int factionID, Info info)
 		{
 			infos[factionID] = info;
@@ -37,26 +66,84 @@ namespace CarefulRaids
 
 		public float DebugInfo()
 		{
-			var costs = infos.Values.Max(info => info.costs);
-			var timestamp = infos.Values.Max(info => info.timestamp);
-			if (GenTicks.TicksAbs > timestamp + CarefulRaidsMod.expiringTime) return 0.0f;
-			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, costs);
+			if (GenTicks.TicksAbs > MaxTimestamp() + CarefulRaidsMod.expiringTime) return 0.0f;
+			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, MaxCost());
 		}
 	}
 
 	//
 
-	public class CarefulMapGrid
+	public class CarefulMapGrid : MapComponent
 	{
 		public CarefulCell[] grid;
 		public int width;
 		public int height;
 
-		public CarefulMapGrid(Map map)
+		public int tickCounter;
+
+		public CarefulMapGrid(Map map) : base(map)
 		{
 			width = map.Size.x;
 			height = map.Size.z;
 			grid = new CarefulCell[width * height];
+		}
+
+		public override void ExposeData()
+		{
+			base.ExposeData();
+
+			Tools.Look(ref grid, "pheromones", new object[0]);
+			Scribe_Values.Look(ref width, "width");
+			Scribe_Values.Look(ref height, "height");
+			Scribe_Values.Look(ref tickCounter, "tickCounter");
+
+			if (width == 0 || height == 0)
+			{
+				width = (int)Mathf.Sqrt(grid.Length);
+				height = width;
+			}
+		}
+
+		public void Tick(Map map)
+		{
+			if (++tickCounter >= 120)
+			{
+				tickCounter = 0;
+				var maxTimestamp = GenTicks.TicksAbs - CarefulRaidsMod.expiringTime;
+				var nonEmptyCells = new List<KeyValuePair<IntVec3, CarefulCell>>();
+				for (var x = 0; x < width; x++)
+					for (var z = 0; z < height; z++)
+					{
+						var cell = grid[z * width + x];
+						if (cell != null)
+							nonEmptyCells.Add(new KeyValuePair<IntVec3, CarefulCell>(new IntVec3(x, 0, z), cell));
+					}
+
+				var needsReachabilityUpdate = new List<IntVec3>();
+				foreach (var pair in nonEmptyCells)
+				{
+					var cell = pair.Value;
+					var factionsToDelete = new List<int>();
+					var factions = cell.infos.Keys.ToList();
+					foreach (var factionID in factions)
+					{
+						var info = cell.infos[factionID];
+						if (info.timestamp < maxTimestamp)
+						{
+							needsReachabilityUpdate.Add(pair.Key);
+							cell.infos.Remove(factionID);
+							// Log.Warning("Fake door removed " + pair.key);
+						}
+					}
+				}
+				if (needsReachabilityUpdate.Any())
+				{
+					map.reachability.ClearCache();
+					foreach (var pos in needsReachabilityUpdate)
+						map.pathGrid.RecalculatePerceivedPathCostAt(pos);
+					map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
+				}
+			}
 		}
 
 		public CarefulCell GetCell(int index)
@@ -90,43 +177,30 @@ namespace CarefulRaids
 
 	public class CarefulGrid
 	{
-		public Dictionary<int, CarefulMapGrid> grids = new Dictionary<int, CarefulMapGrid>();
-
-		public CarefulMapGrid GetMapGrid(Map map)
+		public static CarefulMapGrid GetMapGrid(Map map)
 		{
-			var id = map.uniqueID;
-			CarefulMapGrid mapGrid;
-			if (grids.TryGetValue(id, out mapGrid) == false)
-			{
-				mapGrid = new CarefulMapGrid(map);
-				grids[id] = mapGrid;
-			}
-			return mapGrid;
+			return map.GetComponent<CarefulMapGrid>();
 		}
 
-		public CarefulCell GetCell(Map map, IntVec3 position)
+		public static CarefulCell GetCell(Map map, IntVec3 position)
 		{
-			return GetMapGrid(map).GetCell(position);
+			var grid = map.GetComponent<CarefulMapGrid>();
+			return grid.GetCell(position);
 		}
 
-		public CarefulCell GetCell(Map map, int index)
+		public static CarefulCell GetCell(Map map, int index)
 		{
-			return GetMapGrid(map).GetCell(index);
+			var grid = map.GetComponent<CarefulMapGrid>();
+			return grid.GetCell(index);
 		}
 
-		public void AddCell(Pawn pawn, IntVec3 position, Info info)
+		public static void AddCell(Pawn pawn, IntVec3 position, Info info)
 		{
 			if (pawn?.Faction == null || pawn?.Map == null)
 				return;
 
-			var id = pawn.Map.uniqueID;
-			CarefulMapGrid mapGrid;
-			if (grids.TryGetValue(id, out mapGrid) == false)
-			{
-				mapGrid = new CarefulMapGrid(pawn.Map);
-				grids[id] = mapGrid;
-			}
-			mapGrid.AddCell(pawn.Faction.loadID, position, info);
+			var grid = pawn.Map.GetComponent<CarefulMapGrid>();
+			grid.AddCell(pawn.Faction.loadID, position, info);
 		}
 	}
 }

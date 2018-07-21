@@ -3,6 +3,7 @@ using RimWorld;
 using UnityEngine;
 using Verse;
 using Harmony;
+using System.Xml;
 
 namespace CarefulRaids
 {
@@ -22,20 +23,61 @@ namespace CarefulRaids
 			matrix.SetTRS(pos, q, s);
 			Graphics.DrawMesh(mesh, matrix, mat, 0);
 		}
+
+		public static void Look<T>(ref T[] list, string label, params object[] ctorArgs) where T : IExposable
+		{
+			if (Scribe.EnterNode(label) == false) return;
+
+			try
+			{
+				if (Scribe.mode == LoadSaveMode.Saving)
+				{
+					if (list == null)
+						Scribe.saver.WriteAttribute("IsNull", "True");
+					else
+					{
+						foreach (var current in list)
+						{
+							var t2 = current;
+							Scribe_Deep.Look<T>(ref t2, false, "li", ctorArgs);
+						}
+					}
+				}
+				else if (Scribe.mode == LoadSaveMode.LoadingVars)
+				{
+					var curXmlParent = Scribe.loader.curXmlParent;
+					var xmlAttribute = curXmlParent.Attributes["IsNull"];
+					if (xmlAttribute != null && xmlAttribute.Value.ToLower() == "true")
+						list = null;
+					else
+					{
+						list = new T[curXmlParent.ChildNodes.Count];
+						var i = 0;
+						foreach (var subNode2 in curXmlParent.ChildNodes)
+							list[i++] = ScribeExtractor.SaveableFromNode<T>((XmlNode)subNode2, ctorArgs);
+					}
+				}
+			}
+			finally
+			{
+				Scribe.ExitNode();
+			}
+		}
 	}
 
-	/*public class FakeDoor : Building_Door
+	public class FakeDoor : Building_Door
 	{
 		public List<Faction> factions;
 
-		public FakeDoor(Map map, IntVec3 pos, List<Faction> factions)
+		public FakeDoor(Map map, IntVec3 pos, List<Faction> factions) : base()
 		{
+			def = ThingDefOf.Door;
 			this.factions = factions;
 			SetFaction(Faction.OfPlayer);
 			Traverse.Create(this).Field("map").SetValue(map);
 			SetPositionDirect(pos);
 
-			Log.Warning("Fake door created " + pos);
+			// Log.Warning("Fake door created " + pos);
 		}
 
 		public override bool BlocksPawn(Pawn p)
@@ -47,5 +89,5 @@ namespace CarefulRaids
 		{
 			return factions.Contains(p.Faction) == false;
 		}
-	}*/
+	}
 }
