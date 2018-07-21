@@ -49,16 +49,6 @@ namespace CarefulRaids
 			return infos.Values.Select(info => info.faction).ToList();
 		}
 
-		public int MaxCost()
-		{
-			return infos.Values.Max(info => info.costs);
-		}
-
-		public int MaxTimestamp()
-		{
-			return infos.Values.Max(info => info.timestamp);
-		}
-
 		public void AddInfo(int factionID, Info info)
 		{
 			infos[factionID] = info;
@@ -66,8 +56,15 @@ namespace CarefulRaids
 
 		public float DebugInfo()
 		{
-			if (GenTicks.TicksAbs > MaxTimestamp() + CarefulRaidsMod.expiringTime) return 0.0f;
-			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, MaxCost());
+			var expired = GenTicks.TicksAbs + CarefulRaidsMod.expiringTime;
+			var maxCost = 0;
+			foreach (var info in infos.Values)
+			{
+				if (info.timestamp < expired && info.costs > maxCost)
+					maxCost = info.costs;
+			}
+			if (maxCost == 0) return 0f;
+			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, maxCost);
 		}
 	}
 

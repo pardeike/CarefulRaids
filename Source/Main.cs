@@ -41,7 +41,7 @@ namespace CarefulRaids
 					if (carefulCell != null)
 					{
 						var severity = carefulCell.DebugInfo();
-						if (severity > 0.0)
+						if (severity > 0.0f)
 						{
 							var pos = new Vector3(cell.x, Altitudes.AltitudeFor(AltitudeLayer.Pawn - 1), cell.z);
 							var color = new Color(1f, 0f, 0f, severity);
