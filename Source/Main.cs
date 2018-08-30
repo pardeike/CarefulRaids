@@ -1,13 +1,13 @@
-﻿using Verse;
-using Harmony;
-using System.Reflection;
+﻿using Harmony;
 using RimWorld;
-using System.Linq;
-using Verse.AI;
-using UnityEngine;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
+using UnityEngine;
+using Verse;
+using Verse.AI;
 
 namespace CarefulRaids
 {
@@ -154,6 +154,7 @@ namespace CarefulRaids
 				map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
 
 				map.mapPawns.AllPawnsSpawned
+					.ToArray()
 					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Faction.HostileTo(Faction.OfPlayer))
 					.Where(pawn => pawn.Downed == false && pawn.Dead == false && pawn.InMentalState == false)
 					.Where(pawn => pawn.pather?.curPath?.NodesReversed.Contains(pos) ?? false)
