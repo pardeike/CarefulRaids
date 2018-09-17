@@ -20,6 +20,17 @@ namespace CarefulRaids
 		{
 			var harmony = HarmonyInstance.Create("net.pardeike.rimworld.mod.carefulraids");
 			harmony.PatchAll(Assembly.GetExecutingAssembly());
+			FireStats.Trigger(true);
+		}
+
+		[HarmonyPatch(typeof(Game))]
+		[HarmonyPatch("FinalizeInit")]
+		static class Game_FinalizeInit_Patch
+		{
+			static void Postfix()
+			{
+				FireStats.Trigger(false);
+			}
 		}
 
 		// debug careful grid
