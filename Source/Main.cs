@@ -20,7 +20,6 @@ namespace CarefulRaids
 		{
 			var harmony = HarmonyInstance.Create("net.pardeike.rimworld.mod.carefulraids");
 			harmony.PatchAll(Assembly.GetExecutingAssembly());
-			FireStats.Trigger(true);
 		}
 
 		[HarmonyPatch(typeof(Game))]
@@ -29,7 +28,7 @@ namespace CarefulRaids
 		{
 			static void Postfix()
 			{
-				FireStats.Trigger(false);
+				ModCounter.Trigger();
 			}
 		}
 
