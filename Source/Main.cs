@@ -162,6 +162,7 @@ namespace CarefulRaids
 				map.reachability.ClearCache();
 				map.pathGrid.RecalculatePerceivedPathCostAt(pos);
 				map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
+				map.regionAndRoomUpdater.TryRebuildDirtyRegionsAndRooms();
 
 				map.mapPawns.AllPawnsSpawned
 					.ToArray()
@@ -179,6 +180,7 @@ namespace CarefulRaids
 		{
 			static int GetExtraCosts(Pawn pawn, int idx)
 			{
+				if (pawn == null || pawn.Faction == null || pawn.Map == null) return 0;
 				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return 0;
 				var info = CarefulGrid.GetCell(pawn.Map, idx)?.GetInfo(pawn);
 				if (info == null) return 0;

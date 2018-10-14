@@ -139,6 +139,7 @@ namespace CarefulRaids
 					foreach (var pos in needsReachabilityUpdate)
 						map.pathGrid.RecalculatePerceivedPathCostAt(pos);
 					map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
+					map.regionAndRoomUpdater.TryRebuildDirtyRegionsAndRooms();
 				}
 			}
 		}
