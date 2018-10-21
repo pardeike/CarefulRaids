@@ -36,6 +36,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="CrossPromotion.cs" />
     <Compile Include="ModCounter.cs" />
     <Compile Include="Grid.cs" />
     <Compile Include="Main.cs" />
