@@ -161,8 +161,11 @@ namespace CarefulRaids
 
 				map.reachability.ClearCache();
 				map.pathGrid.RecalculatePerceivedPathCostAt(pos);
-				map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
-				map.regionAndRoomUpdater.TryRebuildDirtyRegionsAndRooms();
+				var trv = Traverse.Create(map.regionDirtyer).Method("SetAllDirty");
+				if (trv.MethodExists())
+					trv.GetValue();
+				else
+					Log.Error("RegionDirtyer.SetAllDirty() does not exist");
 
 				map.mapPawns.AllPawnsSpawned
 					.ToArray()
