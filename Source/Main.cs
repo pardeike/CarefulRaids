@@ -143,6 +143,7 @@ namespace CarefulRaids
 				var maxRadius = carefulRadius * carefulRadius;
 				var maxCost = thoughtsKind == PawnDiedOrDownedThoughtsKind.Died ? 10000 : 5000;
 				var factionManager = Find.FactionManager;
+				var deathCells = new HashSet<IntVec3>();
 				map.floodFiller.FloodFill(pos, vec =>
 				{
 					if (!vec.Walkable(map)) return false;
@@ -155,23 +156,26 @@ namespace CarefulRaids
 				{
 					var costs = (maxRadius - (vec - pos).LengthHorizontalSquared) * maxCost / maxRadius;
 					if (costs > 0)
+					{
 						CarefulGrid.AddCell(victim, vec, new Info() { costs = costs, timestamp = timestamp, faction = victim.Faction });
-
+						deathCells.Add(vec);
+					}
 				}, int.MaxValue, false);
+
+				var pawnsInFaction = map.mapPawns.AllPawnsSpawned
+					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Dead == false && pawn.Faction == victim.Faction)
+					.ToArray();
 
 				map.reachability.ClearCache();
 				map.pathGrid.RecalculatePerceivedPathCostAt(pos);
-				var trv = Traverse.Create(map.regionDirtyer).Method("SetAllDirty");
-				if (trv.MethodExists())
-					trv.GetValue();
-				else
-					Log.Error("RegionDirtyer.SetAllDirty() does not exist");
+				var m_Notify_WalkabilityChanged = AccessTools.Method(typeof(RegionDirtyer), "Notify_WalkabilityChanged");
+				if (m_Notify_WalkabilityChanged != null)
+					foreach (var cell in deathCells)
+						m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
 
-				map.mapPawns.AllPawnsSpawned
-					.ToArray()
-					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Faction.HostileTo(Faction.OfPlayer))
-					.Where(pawn => pawn.Downed == false && pawn.Dead == false && pawn.InMentalState == false)
-					.Where(pawn => pawn.pather?.curPath?.NodesReversed.Contains(pos) ?? false)
+				pawnsInFaction
+					.Where(pawn => pawn.Downed == false && pawn.InMentalState == false)
+					.Where(pawn => pawn.pather?.curPath?.NodesReversed.Intersect(deathCells).Any() ?? false)
 					.Do(pawn => pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true));
 			}
 		}
