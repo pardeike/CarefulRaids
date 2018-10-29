@@ -1,9 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using Harmony;
 using RimWorld;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml;
 using UnityEngine;
 using Verse;
-using Harmony;
-using System.Xml;
+using Verse.AI;
 
 namespace CarefulRaids
 {
@@ -22,6 +24,30 @@ namespace CarefulRaids
 			var matrix = new Matrix4x4();
 			matrix.SetTRS(pos, q, s);
 			Graphics.DrawMesh(mesh, matrix, mat, 0);
+		}
+
+		public static void UpdateFactionMapState(Map map, IEnumerable<IntVec3> deathCells, int factionID, Pawn victim = null)
+		{
+			if (deathCells.Any() == false)
+				return;
+
+			var pawnsInFaction = map.mapPawns.AllPawnsSpawned
+				.Where(pawn => pawn != victim && pawn.Spawned && pawn.Dead == false && pawn.Faction?.loadID == factionID)
+				.ToArray();
+
+			map.reachability.ClearCache();
+			var m_Notify_WalkabilityChanged = AccessTools.Method(typeof(RegionDirtyer), "Notify_WalkabilityChanged");
+			if (m_Notify_WalkabilityChanged != null)
+				foreach (var cell in deathCells)
+				{
+					map.pathGrid.RecalculatePerceivedPathCostAt(cell);
+					m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
+				}
+
+			pawnsInFaction
+				.Where(pawn => pawn.CurJob != null && pawn.Downed == false && pawn.InMentalState == false)
+				.Where(pawn => pawn.pather?.curPath?.NodesReversed.Intersect(deathCells).Any() ?? false)
+				.Do(pawn => pawn.jobs?.EndCurrentJob(JobCondition.Incompletable, true));
 		}
 
 		public static void Look<T>(ref T[] list, string label, params object[] ctorArgs) where T : IExposable

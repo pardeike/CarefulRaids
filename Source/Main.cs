@@ -162,21 +162,7 @@ namespace CarefulRaids
 					}
 				}, int.MaxValue, false);
 
-				var pawnsInFaction = map.mapPawns.AllPawnsSpawned
-					.Where(pawn => pawn != victim && pawn.Spawned && pawn.Dead == false && pawn.Faction == victim.Faction)
-					.ToArray();
-
-				map.reachability.ClearCache();
-				map.pathGrid.RecalculatePerceivedPathCostAt(pos);
-				var m_Notify_WalkabilityChanged = AccessTools.Method(typeof(RegionDirtyer), "Notify_WalkabilityChanged");
-				if (m_Notify_WalkabilityChanged != null)
-					foreach (var cell in deathCells)
-						m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
-
-				pawnsInFaction
-					.Where(pawn => pawn.Downed == false && pawn.InMentalState == false)
-					.Where(pawn => pawn.pather?.curPath?.NodesReversed.Intersect(deathCells).Any() ?? false)
-					.Do(pawn => pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true));
+				Tools.UpdateFactionMapState(map, deathCells, victim.Faction.loadID);
 			}
 		}
 

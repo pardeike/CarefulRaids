@@ -43,12 +43,6 @@ namespace CarefulRaids
 			Scribe_Collections.Look(ref infos, "infos");
 		}
 
-		public List<Faction> GetFactions()
-		{
-			var factionManager = Find.FactionManager;
-			return infos.Values.Select(info => info.faction).ToList();
-		}
-
 		public void AddInfo(int factionID, Info info)
 		{
 			infos[factionID] = info;
@@ -116,30 +110,27 @@ namespace CarefulRaids
 							nonEmptyCells.Add(new KeyValuePair<IntVec3, CarefulCell>(new IntVec3(x, 0, z), cell));
 					}
 
-				var needsReachabilityUpdate = new List<IntVec3>();
-				foreach (var pair in nonEmptyCells)
+				var oldDeathCells = new List<IntVec3>();
+				var factionIDs = Find.World.factionManager.AllFactionsListForReading.Select(faction => faction.loadID);
+				foreach (var factionID in factionIDs)
 				{
-					var cell = pair.Value;
-					var factionsToDelete = new List<int>();
-					var factions = cell.infos.Keys.ToList();
-					foreach (var factionID in factions)
-					{
-						var info = cell.infos[factionID];
-						if (info.timestamp < maxTimestamp)
+					oldDeathCells.Clear();
+					for (var x = 0; x < width; x++)
+						for (var z = 0; z < height; z++)
 						{
-							needsReachabilityUpdate.Add(pair.Key);
-							cell.infos.Remove(factionID);
-							// Log.Warning("Fake door removed " + pair.key);
+							var cell = grid[z * width + x];
+							if (cell != null)
+							{
+								if (cell.infos.TryGetValue(factionID, out var info))
+									if (info.timestamp < maxTimestamp)
+									{
+										oldDeathCells.Add(new IntVec3(x, 0, z));
+										cell.infos.Remove(factionID);
+										// Log.Warning("Fake door removed " + pair.key);
+									}
+							}
 						}
-					}
-				}
-				if (needsReachabilityUpdate.Any())
-				{
-					map.reachability.ClearCache();
-					foreach (var pos in needsReachabilityUpdate)
-						map.pathGrid.RecalculatePerceivedPathCostAt(pos);
-					map.regionAndRoomUpdater.RebuildAllRegionsAndRooms();
-					map.regionAndRoomUpdater.TryRebuildDirtyRegionsAndRooms();
+					Tools.UpdateFactionMapState(map, oldDeathCells, factionID);
 				}
 			}
 		}
