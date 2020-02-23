@@ -31,8 +31,7 @@ namespace CarefulRaids
 			if (pawn?.Faction == null)
 				return null;
 
-			Info info;
-			if (infos.TryGetValue(pawn.Faction.loadID, out info))
+			if (infos.TryGetValue(pawn.Faction.loadID, out var info))
 				return info;
 
 			return null;
@@ -83,7 +82,7 @@ namespace CarefulRaids
 		{
 			base.ExposeData();
 
-			Tools.Look(ref grid, "pheromones", new object[0]);
+			Tools.Look(ref grid, "pheromones", System.Array.Empty<object>());
 			Scribe_Values.Look(ref width, "width");
 			Scribe_Values.Look(ref height, "height");
 			Scribe_Values.Look(ref tickCounter, "tickCounter");
@@ -125,7 +124,7 @@ namespace CarefulRaids
 									if (info.timestamp < maxTimestamp)
 									{
 										oldDeathCells.Add(new IntVec3(x, 0, z));
-										cell.infos.Remove(factionID);
+										_ = cell.infos.Remove(factionID);
 										// Log.Warning("Fake door removed " + pair.key);
 									}
 							}
@@ -164,7 +163,7 @@ namespace CarefulRaids
 
 	//
 
-	public class CarefulGrid
+	public static class CarefulGrid
 	{
 		public static CarefulMapGrid GetMapGrid(Map map)
 		{

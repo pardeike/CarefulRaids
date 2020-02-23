@@ -1,4 +1,4 @@
-﻿using Harmony;
+﻿using HarmonyLib;
 using RimWorld;
 using System.Collections.Generic;
 using System.Linq;
@@ -41,7 +41,7 @@ namespace CarefulRaids
 				foreach (var cell in deathCells)
 				{
 					map.pathGrid.RecalculatePerceivedPathCostAt(cell);
-					m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
+					_ = m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
 				}
 
 			pawnsInFaction
@@ -100,7 +100,7 @@ namespace CarefulRaids
 			def = ThingDefOf.Door;
 			this.factions = factions;
 			SetFaction(Faction.OfPlayer);
-			Traverse.Create(this).Field("map").SetValue(map);
+			_ = Traverse.Create(this).Field("map").SetValue(map);
 			SetPositionDirect(pos);
 
 			// Log.Warning("Fake door created " + pos);
