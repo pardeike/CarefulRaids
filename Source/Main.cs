@@ -198,15 +198,15 @@ namespace CarefulRaids
 						break;
 					}
 
-					var idx = list.FirstIndexOf(ins => ins.Calls(m_CellToIndex_int_int));
-					if (idx < 0 || idx >= list.Count() || list[idx + 1].opcode != OpCodes.Stloc_S)
+					var idx = list.FirstIndex(ins => ins.Calls(m_CellToIndex_int_int));
+					if (idx < 0 || list[idx + 1].opcode != OpCodes.Stloc_S)
 					{
 						Log.Error($"Cannot find CellToIndex(n,n)/Stloc_S in {original.FullDescription()}");
 						break;
 					}
 					var gridIdx = list[idx + 1].operand;
 
-					var insertLoc = list.FirstIndexOf(ins => ins.opcode == OpCodes.Ldfld && (FieldInfo)ins.operand == f_knownCost);
+					var insertLoc = list.FirstIndex(ins => ins.opcode == OpCodes.Ldfld && (FieldInfo)ins.operand == f_knownCost);
 					while (insertLoc >= 0 && insertLoc < list.Count)
 					{
 						if (list[insertLoc].opcode == OpCodes.Add) break;
@@ -218,7 +218,7 @@ namespace CarefulRaids
 						break;
 					}
 
-					var traverseParmsIdx = original.GetParameters().FirstIndexOf(info => info.ParameterType == typeof(TraverseParms)) + 1;
+					var traverseParmsIdx = original.GetParameters().FirstIndex(info => info.ParameterType == typeof(TraverseParms)) + 1;
 
 					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Add));
 					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Ldarga_S, traverseParmsIdx));
@@ -266,7 +266,7 @@ namespace CarefulRaids
 			public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
 			{
 				var list = instructions.ToList();
-				var idx = list.FirstIndexOf(code => code.Calls(m_ShouldCollideWithPawns)) - 1;
+				var idx = list.FirstIndex(code => code.Calls(m_ShouldCollideWithPawns)) - 1;
 				if (idx > 0)
 				{
 					if (list[idx].opcode == OpCodes.Ldfld)

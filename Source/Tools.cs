@@ -1,5 +1,6 @@
 ﻿using HarmonyLib;
 using RimWorld;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml;
@@ -16,6 +17,18 @@ namespace CarefulRaids
 			pos.y = Altitudes.AltitudeFor(AltitudeLayer.Pawn - 1);
 			var material = SolidColorMaterials.SimpleSolidColorMaterial(color);
 			DrawScaledMesh(MeshPool.plane10, material, pos + new Vector3(0.5f, 0f, 0.5f), Quaternion.identity, 1.0f, 1.0f);
+		}
+
+		public static int FirstIndex<T>(this IEnumerable<T> list, Func<T, bool> evaluator)
+		{
+			var idx = 0;
+			foreach (var item in list)
+			{
+				if (evaluator(item))
+					return idx;
+				idx++;
+			}
+			return -1;
 		}
 
 		public static void DrawScaledMesh(Mesh mesh, Material mat, Vector3 pos, Quaternion q, float mx, float my, float mz = 1f)
