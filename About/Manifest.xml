@@ -15,6 +15,6 @@
   </loadBefore>
   <loadAfter>
   </loadAfter>
-  <manifestUri>https://raw.githubusercontent.com/pardeike/CarefulRaids/master/About/Manifest.xml</manifestUri>
+  <manifestUri>https://raw.githubusercontent.com/pardeike/CarefulRaids/latest/About/Manifest.xml</manifestUri>
   <downloadUri>https://github.com/pardeike/CarefulRaids/releases/latest</downloadUri>
 </Manifest>
