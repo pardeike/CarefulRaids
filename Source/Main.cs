@@ -22,8 +22,7 @@ namespace CarefulRaids
 			harmony.PatchAll();
 		}
 
-		[HarmonyPatch(typeof(Game))]
-		[HarmonyPatch("FinalizeInit")]
+		[HarmonyPatch(typeof(Game), nameof(Game.FinalizeInit))]
 		static class Game_FinalizeInit_Patch
 		{
 			public static void Postfix()
@@ -34,8 +33,7 @@ namespace CarefulRaids
 
 		// debug careful grid
 		//
-		[HarmonyPatch(typeof(MapInterface))]
-		[HarmonyPatch("MapInterfaceUpdate")]
+		[HarmonyPatch(typeof(MapInterface), nameof(MapInterface.MapInterfaceUpdate))]
 		class MapInterface_MapInterfaceUpdate_Patch
 		{
 			public static void Postfix()
@@ -64,8 +62,7 @@ namespace CarefulRaids
 
 		// reset/load careful grid
 		//
-		[HarmonyPatch(typeof(Map))]
-		[HarmonyPatch("MapPreTick")]
+		[HarmonyPatch(typeof(Map), nameof(Map.MapPreTick))]
 		static class Map_MapPreTick_Patch
 		{
 			public static void Postfix(Map __instance)
@@ -74,8 +71,7 @@ namespace CarefulRaids
 			}
 		}
 
-		[HarmonyPatch(typeof(RegionTypeUtility))]
-		[HarmonyPatch(nameof(RegionTypeUtility.GetExpectedRegionType))]
+		[HarmonyPatch(typeof(RegionTypeUtility), nameof(RegionTypeUtility.GetExpectedRegionType))]
 		static class RegionTypeUtility_GetExpectedRegionType_Patch
 		{
 			public static bool Prefix(ref RegionType __result, IntVec3 c, Map map)
@@ -96,8 +92,7 @@ namespace CarefulRaids
 			}
 		}
 
-		[HarmonyPatch(typeof(RegionMaker))]
-		[HarmonyPatch(nameof(RegionMaker.TryGenerateRegionFrom))]
+		[HarmonyPatch(typeof(RegionMaker), nameof(RegionMaker.TryGenerateRegionFrom))]
 		static class RegionMaker_TryGenerateRegionFrom_Patch
 		{
 			static Building_Door GetDoor(IntVec3 c, Map map)
@@ -125,8 +120,7 @@ namespace CarefulRaids
 
 		// mark careful grid when a pawn is downed or dies
 		//
-		[HarmonyPatch(typeof(PawnDiedOrDownedThoughtsUtility))]
-		[HarmonyPatch("TryGiveThoughts")]
+		[HarmonyPatch(typeof(PawnDiedOrDownedThoughtsUtility), nameof(PawnDiedOrDownedThoughtsUtility.TryGiveThoughts))]
 		[HarmonyPatch(new Type[] { typeof(Pawn), typeof(DamageInfo?), typeof(PawnDiedOrDownedThoughtsKind) })]
 		static class PawnDiedOrDownedThoughtsUtility_TryGiveThoughts_Patch
 		{
@@ -148,8 +142,7 @@ namespace CarefulRaids
 				{
 					if (!vec.Walkable(map)) return false;
 					if ((float)vec.DistanceToSquared(pos) > maxRadius) return false;
-					var door = vec.GetEdifice(map) as Building_Door;
-					if (door != null && !door.CanPhysicallyPass(victim)) return false;
+					if (vec.GetEdifice(map) is Building_Door door && !door.CanPhysicallyPass(victim)) return false;
 					return true;
 
 				}, vec =>
@@ -166,11 +159,14 @@ namespace CarefulRaids
 			}
 		}
 
-		[HarmonyPatch(typeof(PathFinder))]
-		[HarmonyPatch("FindPath")]
-		[HarmonyPatch(new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
+		[HarmonyPatch(typeof(PathFinder), nameof(PathFinder.FindPath))]
+		[HarmonyPatch(new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode), typeof(PathFinderCostTuning) })]
 		static class PathFinder_FindPath_Patch
 		{
+			static readonly MethodInfo m_CellToIndex_int_int = AccessTools.Method(typeof(CellIndices), nameof(CellIndices.CellToIndex), new Type[] { typeof(int), typeof(int) });
+			static readonly FieldInfo f_TraverseParms_pawn = AccessTools.Field(typeof(TraverseParms), nameof(TraverseParms.pawn));
+			static readonly MethodInfo m_GetExtraCosts = SymbolExtensions.GetMethodInfo(() => GetExtraCosts(null, 0));
+
 			public static int GetExtraCosts(Pawn pawn, int idx)
 			{
 				if (pawn == null || pawn.Faction == null || pawn.Map == null) return 0;
@@ -182,21 +178,13 @@ namespace CarefulRaids
 				return info.costs;
 			}
 
-			static readonly MethodInfo m_CellToIndex_int_int = AccessTools.Method(typeof(CellIndices), nameof(CellIndices.CellToIndex), new Type[] { typeof(int), typeof(int) });
-			static readonly FieldInfo f_TraverseParms_pawn = AccessTools.Field(typeof(TraverseParms), nameof(TraverseParms.pawn));
-			static readonly MethodInfo m_GetExtraCosts = SymbolExtensions.GetMethodInfo(() => GetExtraCosts(null, 0));
 			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
 			{
 				var list = instructions.ToList();
 				while (true)
 				{
-					var t_PathFinderNodeFast = AccessTools.Inner(typeof(PathFinder), "PathFinderNodeFast");
-					var f_knownCost = AccessTools.Field(t_PathFinderNodeFast, "knownCost");
-					if (f_knownCost == null)
-					{
-						Log.Error($"Cannot find field Verse.AI.PathFinder.PathFinderNodeFast.knownCost");
-						break;
-					}
+					var t_PathFinderNodeFast = AccessTools.Inner(typeof(PathFinder), nameof(PathFinder.PathFinderNodeFast));
+					var f_knownCost = AccessTools.Field(t_PathFinderNodeFast, nameof(PathFinder.PathFinderNodeFast.knownCost));
 
 					var idx = list.FirstIndex(ins => ins.Calls(m_CellToIndex_int_int));
 					if (idx < 0 || list[idx + 1].opcode != OpCodes.Stloc_S)
@@ -233,13 +221,12 @@ namespace CarefulRaids
 			}
 		}
 
-		[HarmonyPatch(typeof(Pawn_PathFollower))]
-		[HarmonyPatch("NeedNewPath")]
+		[HarmonyPatch(typeof(Pawn_PathFollower), nameof(Pawn_PathFollower.NeedNewPath))]
 		static class Pawn_PathFollower_NeedNewPath_Patch
 		{
-			static readonly MethodInfo m_ShouldCollideWithPawns = AccessTools.Method(typeof(PawnUtility), "ShouldCollideWithPawns");
+			static readonly MethodInfo m_ShouldCollideWithPawns = AccessTools.Method(typeof(PawnUtility), nameof(PawnUtility.ShouldCollideWithPawns));
 			static readonly MethodInfo m_HasDangerInPath = SymbolExtensions.GetMethodInfo(() => HasDangerInPath(default, default));
-			static readonly FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), "pawn");
+			static readonly FieldInfo f_pawn = AccessTools.Field(typeof(Pawn_PathFollower), nameof(Pawn_PathFollower.pawn));
 
 			/*static void Postfix(bool __result, Pawn ___pawn)
 			{

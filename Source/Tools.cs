@@ -49,13 +49,11 @@ namespace CarefulRaids
 				.ToArray();
 
 			map.reachability.ClearCache();
-			var m_Notify_WalkabilityChanged = AccessTools.Method(typeof(RegionDirtyer), "Notify_WalkabilityChanged");
-			if (m_Notify_WalkabilityChanged != null)
-				foreach (var cell in deathCells)
-				{
-					map.pathGrid.RecalculatePerceivedPathCostAt(cell);
-					_ = m_Notify_WalkabilityChanged.Invoke(map.regionDirtyer, new object[] { cell });
-				}
+			foreach (var cell in deathCells)
+			{
+				map.pathing.RecalculatePerceivedPathCostAt(cell);
+				map.regionDirtyer.Notify_WalkabilityChanged(cell, true);
+			}
 
 			pawnsInFaction
 				.Where(pawn => pawn.CurJob != null && pawn.Downed == false && pawn.InMentalState == false)
@@ -113,7 +111,7 @@ namespace CarefulRaids
 			def = ThingDefOf.Door;
 			this.factions = factions;
 			SetFaction(Faction.OfPlayer);
-			_ = Traverse.Create(this).Field("map").SetValue(map);
+			mapIndexOrState = (sbyte)Find.Maps.IndexOf(map);
 			SetPositionDirect(pos);
 
 			// Log.Warning("Fake door created " + pos);
