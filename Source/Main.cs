@@ -22,15 +22,6 @@ namespace CarefulRaids
 			harmony.PatchAll();
 		}
 
-		[HarmonyPatch(typeof(Game), nameof(Game.FinalizeInit))]
-		static class Game_FinalizeInit_Patch
-		{
-			public static void Postfix()
-			{
-				ModCounter.Trigger();
-			}
-		}
-
 		// debug careful grid
 		//
 		[HarmonyPatch(typeof(MapInterface), nameof(MapInterface.MapInterfaceUpdate))]
