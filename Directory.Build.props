@@ -1,0 +1,11 @@
+﻿<Project>
+
+	<PropertyGroup>
+		<ModName>Careful Raids</ModName>
+		<ModFileName>CarefulRaids</ModFileName>
+		<Repository>https://github.com/pardeike/CarefulRaids</Repository>
+		<ModVersion>2.2.1.0</ModVersion>
+		<ProjectGuid>{DC3E172A-76D6-47D7-865E-4ABB2551B039}</ProjectGuid>
+	</PropertyGroup>
+
+</Project>

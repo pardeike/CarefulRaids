@@ -24,7 +24,7 @@ namespace CarefulRaids
 
 	public class CarefulCell : IExposable
 	{
-		public Dictionary<int, Info> infos = new Dictionary<int, Info>();
+		public Dictionary<int, Info> infos = [];
 
 		public Info GetInfo(Pawn pawn)
 		{
@@ -56,7 +56,8 @@ namespace CarefulRaids
 				if (info.timestamp < expired && info.costs > maxCost)
 					maxCost = info.costs;
 			}
-			if (maxCost == 0) return 0f;
+			if (maxCost == 0)
+				return 0f;
 			return GenMath.LerpDouble(0, 10000, 0.1f, 0.8f, maxCost);
 		}
 	}
@@ -82,7 +83,7 @@ namespace CarefulRaids
 		{
 			base.ExposeData();
 
-			Tools.Look(ref grid, "pheromones", System.Array.Empty<object>());
+			Tools.Look(ref grid, "pheromones", []);
 			Scribe_Values.Look(ref width, "width");
 			Scribe_Values.Look(ref height, "height");
 			Scribe_Values.Look(ref tickCounter, "tickCounter");

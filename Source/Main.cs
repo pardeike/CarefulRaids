@@ -9,6 +9,7 @@ using System.Reflection.Emit;
 using UnityEngine;
 using Verse;
 using Verse.AI;
+using static HarmonyLib.Code;
 
 namespace CarefulRaids
 {
@@ -32,7 +33,8 @@ namespace CarefulRaids
 		{
 			public static void Postfix()
 			{
-				if (DebugViewSettings.writePathCosts == false) return;
+				if (DebugViewSettings.writePathCosts == false)
+					return;
 
 				var map = Find.CurrentMap;
 				var currentViewRect = Find.CameraDriver.CurrentViewRect;
@@ -120,12 +122,15 @@ namespace CarefulRaids
 		{
 			public static void Postfix(Pawn victim, PawnDiedOrDownedThoughtsKind thoughtsKind)
 			{
-				if (victim.Faction.HostileTo(Faction.OfPlayer) == false) return;
-				if (thoughtsKind != PawnDiedOrDownedThoughtsKind.Downed && thoughtsKind != PawnDiedOrDownedThoughtsKind.Died) return;
+				if (victim.Faction.HostileTo(Faction.OfPlayer) == false)
+					return;
+				if (thoughtsKind != PawnDiedOrDownedThoughtsKind.Downed && thoughtsKind != PawnDiedOrDownedThoughtsKind.Died)
+					return;
 
 				var pos = victim.Position;
 				var map = victim.Map;
-				if (map == null || pos.InBounds(map) == false) return;
+				if (map == null || pos.InBounds(map) == false)
+					return;
 
 				var timestamp = GenTicks.TicksAbs;
 				var maxRadius = carefulRadius * carefulRadius;
@@ -134,9 +139,12 @@ namespace CarefulRaids
 				var deathCells = new HashSet<IntVec3>();
 				map.floodFiller.FloodFill(pos, vec =>
 				{
-					if (!vec.Walkable(map)) return false;
-					if ((float)vec.DistanceToSquared(pos) > maxRadius) return false;
-					if (vec.GetEdifice(map) is Building_Door door && !door.CanPhysicallyPass(victim)) return false;
+					if (!vec.Walkable(map))
+						return false;
+					if ((float)vec.DistanceToSquared(pos) > maxRadius)
+						return false;
+					if (vec.GetEdifice(map) is Building_Door door && !door.CanPhysicallyPass(victim))
+						return false;
 					return true;
 
 				}, vec =>
@@ -157,61 +165,42 @@ namespace CarefulRaids
 		[HarmonyPatch(new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode), typeof(PathFinderCostTuning) })]
 		static class PathFinder_FindPath_Patch
 		{
-			static readonly MethodInfo m_CellToIndex_int_int = AccessTools.Method(typeof(CellIndices), nameof(CellIndices.CellToIndex), new Type[] { typeof(int), typeof(int) });
-			static readonly FieldInfo f_TraverseParms_pawn = AccessTools.Field(typeof(TraverseParms), nameof(TraverseParms.pawn));
+			static readonly MethodInfo m_CellToIndex = AccessTools.Method(typeof(CellIndices), nameof(CellIndices.CellToIndex), [typeof(int), typeof(int)]);
 			static readonly MethodInfo m_GetExtraCosts = SymbolExtensions.GetMethodInfo(() => GetExtraCosts(null, 0));
+			static readonly FieldInfo f_TraverseParms_pawn = AccessTools.Field(typeof(TraverseParms), nameof(TraverseParms.pawn));
+			static readonly FieldInfo f_knownCost = AccessTools.Field(typeof(PathFinder.PathFinderNodeFast), nameof(PathFinder.PathFinderNodeFast.knownCost));
 
 			public static int GetExtraCosts(Pawn pawn, int idx)
 			{
-				if (pawn == null || pawn.Faction == null || pawn.Map == null) return 0;
-				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return 0;
+				if (pawn == null || pawn.Faction == null || pawn.Map == null)
+					return 0;
+				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false)
+					return 0;
 				var info = CarefulGrid.GetCell(pawn.Map, idx)?.GetInfo(pawn);
-				if (info == null) return 0;
-				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return 0;
-				//Log.Warning("costs " + info.costs + " " + pawn.Name.ToStringShort);
+				if (info == null)
+					return 0;
+				if (GenTicks.TicksAbs > info.timestamp + expiringTime)
+					return 0;
 				return info.costs;
 			}
 
-			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+			static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
 			{
-				var list = instructions.ToList();
-				while (true)
-				{
-					var t_PathFinderNodeFast = AccessTools.Inner(typeof(PathFinder), nameof(PathFinder.PathFinderNodeFast));
-					var f_knownCost = AccessTools.Field(t_PathFinderNodeFast, nameof(PathFinder.PathFinderNodeFast.knownCost));
+				var matcher = new CodeMatcher(instructions, generator)
+					.MatchEndForward(Ldfld[f_TraverseParms_pawn], Stloc)
+					.ThrowIfNotMatch("Cannot find location where pawn is loaded from TraverseParms")
+					.DeclareLocal(typeof(Pawn), out var v_pawn)
+					.Insert(Dup, Stloc[v_pawn])
+					.MatchStartForward(CodeMatch.Calls(m_CellToIndex), CodeMatch.StoresLocal("gridIdx"));
+				var gridIdxVar = matcher.NamedMatch("gridIdx").operand;
 
-					var idx = list.FirstIndex(ins => ins.Calls(m_CellToIndex_int_int));
-					if (idx < 0 || list[idx + 1].opcode != OpCodes.Stloc_S)
-					{
-						Log.Error($"Cannot find CellToIndex(n,n)/Stloc_S in {original.FullDescription()}");
-						break;
-					}
-					var gridIdx = list[idx + 1].operand;
-
-					var insertLoc = list.FirstIndex(ins => ins.opcode == OpCodes.Ldfld && (FieldInfo)ins.operand == f_knownCost);
-					while (insertLoc >= 0 && insertLoc < list.Count)
-					{
-						if (list[insertLoc].opcode == OpCodes.Add) break;
-						insertLoc++;
-					}
-					if (insertLoc < 0 || insertLoc >= list.Count())
-					{
-						Log.Error($"Cannot find Ldfld knownCost ... Add in {original.FullDescription()}");
-						break;
-					}
-
-					var traverseParmsIdx = original.GetParameters().FirstIndex(info => info.ParameterType == typeof(TraverseParms)) + 1;
-
-					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Add));
-					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Ldarga_S, traverseParmsIdx));
-					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Ldfld, f_TraverseParms_pawn));
-					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Ldloc_S, gridIdx));
-					list.Insert(insertLoc++, new CodeInstruction(OpCodes.Call, m_GetExtraCosts));
-					break;
-				}
-
-				foreach (var instr in list)
-					yield return instr;
+				return matcher
+					.ThrowIfNotMatch("Cannot find where CellToIndex(int, int) is used")
+					.Repeat(m =>
+						m.MatchStartForward(CodeMatch.LoadsField(f_knownCost)).Advance(1)
+						.Insert(Ldloc[v_pawn], Ldloc[gridIdxVar], Call[m_GetExtraCosts], Add)
+					)
+					.InstructionEnumeration();
 			}
 		}
 
@@ -230,17 +219,22 @@ namespace CarefulRaids
 
 			static bool HasDangerInPath(Pawn_PathFollower __instance, Pawn pawn)
 			{
-				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false) return false;
+				if (pawn.Faction.HostileTo(Faction.OfPlayer) == false)
+					return false;
 
 				var path = __instance.curPath;
-				if (path.NodesLeftCount < 5) return false;
+				if (path.NodesLeftCount < 5)
+					return false;
 				var lookAhead = path.Peek(4);
 				var destination = path.LastNode;
-				if ((lookAhead - destination).LengthHorizontalSquared < 25) return false;
+				if ((lookAhead - destination).LengthHorizontalSquared < 25)
+					return false;
 
 				var info = CarefulGrid.GetCell(pawn.Map, lookAhead)?.GetInfo(pawn);
-				if (info == null) return false;
-				if (GenTicks.TicksAbs > info.timestamp + expiringTime) return false;
+				if (info == null)
+					return false;
+				if (GenTicks.TicksAbs > info.timestamp + expiringTime)
+					return false;
 				return (info.costs > 0);
 			}
 
@@ -261,7 +255,7 @@ namespace CarefulRaids
 						list.Insert(idx++, new CodeInstruction(OpCodes.Brfalse, jump));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ldc_I4_1));
 						list.Insert(idx++, new CodeInstruction(OpCodes.Ret));
-						list.Insert(idx++, new CodeInstruction(OpCodes.Ldarg_0) { labels = new List<Label>() { jump } }); // add the missing Ldarg_0 from original code here
+						list.Insert(idx++, new CodeInstruction(OpCodes.Ldarg_0) { labels = [jump] }); // add the missing Ldarg_0 from original code here
 					}
 					else
 						Log.Error("Cannot find Ldfld one instruction before " + m_ShouldCollideWithPawns + " in Pawn_PathFollower.NeedNewPath");
