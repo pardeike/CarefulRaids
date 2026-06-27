@@ -1,8 +1,21 @@
-# RimWorld Careful Raids  
+# Careful Raids
 
-A RimWorld mod to improve the raids by letting them avoid certain death.
+Careful Raids makes raiders a little less eager to walk straight into obvious death.
 
-Powered by [Harmony](https://github.com/pardeike/Harmony)  
-The runtime patch library for .NET
+Raiders will try to avoid some bad paths and suicidal choices, which can make attacks feel less like target practice and more like a real threat.
 
-![Harmony](https://s24.postimg.org/58bl1rz39/logo.png)
+This does not turn raids into perfect tactical machines. It simply gives them enough caution to make your defenses work harder.
+
+----
+
+If you are looking for the Steam Workshop versions:
+https://steamcommunity.com/id/brrainz/myworkshopfiles/
+
+For mod support/feedback, visit my Discord:
+https://discord.gg/CYnWvrbNhD
+
+Support me with as little as $1:
+https://patreon.com/pardeike
+
+ENJOY
+/Brrainz
